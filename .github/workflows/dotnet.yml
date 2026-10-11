@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: Production
-      url: https://${{ env.AZURE_WEBAPP_URL }}.azurewebsites.net
+      url: ${{ env.AZURE_WEBAPP_URL }}
 
     steps:
       - name: Download artifact from build job
@@ -77,4 +77,4 @@ jobs:
         run: |
           curl --fail --silent --show-error \
             --retry 10 --retry-delay 15 --retry-all-errors \
-            https://${{ env.AZURE_WEBAPP_URL }}/health
+            ${{ env.AZURE_WEBAPP_URL }}/health
