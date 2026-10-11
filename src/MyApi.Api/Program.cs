@@ -1,7 +1,12 @@
 using Scalar.AspNetCore;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+if(!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+{
+    builder.Services.AddOpenTelemetry().UseAzureMonitor();
+}
 // OpenAPI document generation (built into .NET)
 builder.Services.AddOpenApi();
 
@@ -45,7 +50,7 @@ app.MapGet("/api/time", (TimeProvider clock) =>
 .Produces<TimeResponse>(StatusCodes.Status200OK);
 
 // GET /api/time/{timeZoneId} -> current time in a given time zone
-app.MapGet("/api/time/{**timeZoneId}", (string timeZoneId, TimeProvider clock) =>
+app.MapGet("/api/time/{**timeZoneId}", (string timeZoneId, TimeProvider clock, ILogger<Program> logger) =>
 {
     TimeZoneInfo tz;
     try
@@ -54,8 +59,11 @@ app.MapGet("/api/time/{**timeZoneId}", (string timeZoneId, TimeProvider clock) =
     }
     catch (TimeZoneNotFoundException)
     {
+        logger.LogWarning("Time zone {TimeZoneId} was not found", timeZoneId);
         return Results.NotFound(new { error = $"Time zone '{timeZoneId}' was not found." });
     }
+
+    logger.LogInformation("Returning time for zone {TimeZoneId}", timeZoneId);
 
     var utcNow = clock.GetUtcNow();
     var localNow = TimeZoneInfo.ConvertTime(utcNow, tz);
