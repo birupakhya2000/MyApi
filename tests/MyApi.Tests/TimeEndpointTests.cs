@@ -76,5 +76,14 @@ namespace MyApi.Tests
             var json = await response.Content.ReadAsStringAsync();
             Assert.Contains("/api/time", json);
         }
+
+        [Fact]
+        public async Task Health_ReturnsHealthy()
+        {
+            var response = await _client.GetAsync("/health");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+        }
     }
 }
