@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main, master ]
 
+
+env:
+  AZURE_WEBAPP_NAME: 'myapi-time-Birupakhya' # Set this to your Azure Web App name
+  DOTNET_VERSION: '10.0.x' # Set this to the .NET version you want to use
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,7 +21,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -35,3 +39,20 @@ jobs:
 
       - name: Test
         run: dotnet test --configuration Release --no-build --verbosity normal
+
+      - name: Publish
+        run: dotnet publish --configuration Release --no-build --output ./publish
+
+      - name: upload artifact for deployment job
+        uses: actions/upload-artifact@v3
+        with:
+          name: api-package
+          path: ./publish
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    environment:
+      name: 'Production'
+      url: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net
