@@ -8,14 +8,23 @@ builder.Services.AddOpenApi();
 // Inject a clock so we can fake it in tests later
 builder.Services.AddSingleton(TimeProvider.System);
 
+builder.Services.AddHealthChecks();
+
 var app = builder.Build();
 
-// OpenAPI JSON at /openapi/v1.json, Scalar UI on top of it
-app.MapOpenApi();
-app.MapScalarApiReference();
+var enableDocs = app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("EnableApiDocs");
 
-app.MapGet("/", () => Results.Redirect("/scalar"))
+if(enableDocs)
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference();
+}
+
+
+app.MapGet("/", () => enableDocs ? Results.Redirect("/scalar") : Results.Ok("MyApi is running."))
    .ExcludeFromDescription();
+
+app.MapHealthChecks("/health").ExcludeFromDescription();    
 
 // GET /api/time -> current time on the server
 app.MapGet("/api/time", (TimeProvider clock) =>
