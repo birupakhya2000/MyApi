@@ -8,7 +8,8 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_NAME: 'myapi-time-birupakhya'   # must match the Azure Web App name exactly
+  AZURE_WEBAPP_NAME: 'myapi-time-birupakhya'   
+  AZURE_WEBAPP_URL: 'https://myapi-time-birupakhya-eke3dpavctbhb3h9.centralindia-01.azurewebsites.net'
   DOTNET_VERSION: '10.0.x'
 
 jobs:
@@ -56,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: Production
-      url: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net
+      url: https://${{ env.AZURE_WEBAPP_URL }}.azurewebsites.net
 
     steps:
       - name: Download artifact from build job
@@ -76,4 +77,4 @@ jobs:
         run: |
           curl --fail --silent --show-error \
             --retry 10 --retry-delay 15 --retry-all-errors \
-            https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health
+            https://${{ env.AZURE_WEBAPP_URL }}/health
