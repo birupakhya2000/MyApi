@@ -2,19 +2,20 @@ name: .NET CI
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ master, main ]
+    branches: [ main, master ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
@@ -22,24 +23,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-{{ runner.OS }}-{{ hashFiles('**/*.csproj', '**/*.sln*') }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.sln', '**/*.slnx') }}
           restore-keys: |
-            nuget-{{ runner.OS }}-
+            nuget-${{ runner.os }}-
 
-      - name: Restore, Build and Test (auto-detect solution or use projects)
-        run: |
-          set -e
-          echo "Looking for solution files..."
-          if ls *.sln* 1> /dev/null 2>&1; then
-            SOLUTION_FILE=$(ls *.sln* | head -n 1)
-            echo "Found solution: $SOLUTION_FILE"
-            dotnet restore "$SOLUTION_FILE"
-            dotnet build "$SOLUTION_FILE" --configuration Release --no-restore
-            dotnet test "$SOLUTION_FILE" --configuration Release --no-build --no-restore --verbosity normal
-          else
-            echo "No solution file found at repository root; restoring/building/testing known project files"
-            dotnet restore src/MyApi.Api/MyApi.Api.csproj tests/MyApi.Tests/MyApi.Tests.csproj || true
-            dotnet build src/MyApi.Api/MyApi.Api.csproj --configuration Release --no-restore
-            dotnet build tests/MyApi.Tests/MyApi.Tests.csproj --configuration Release --no-restore
-            dotnet test tests/MyApi.Tests/MyApi.Tests.csproj --configuration Release --no-build --no-restore --verbosity normal
-          fi
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build --verbosity normal
