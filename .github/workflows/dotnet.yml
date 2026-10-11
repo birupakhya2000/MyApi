@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_NAME: 'myapi-time-birupakhya-eke3dpavctbhb3h9.centralindia-01'   # must match the Azure Web App name exactly
+  AZURE_WEBAPP_NAME: 'myapi-time-birupakhya'   # must match the Azure Web App name exactly
   DOTNET_VERSION: '10.0.x'
 
 jobs:
