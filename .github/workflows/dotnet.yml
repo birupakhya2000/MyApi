@@ -110,7 +110,7 @@ jobs:
             code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
               -H "Content-Type: application/json" \
               -d '{"username":"smoke","password":"wrong-password"}' \
-              ${{ env.AZURE_WEBAPP_NAME_STAGING }}/api/auth/login)
+              ${{ env.AZURE_WEBAPP_URL_STAGING }}/api/auth/login)
           done
           [ "$code" = "429" ] || { echo "Expected 429 after repeated logins, got $code"; exit 1; }
 
@@ -169,8 +169,8 @@ jobs:
             code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
               -H "Content-Type: application/json" \
               -d '{"username":"smoke","password":"wrong-password"}' \
-              ${{ env.AZURE_WEBAPP_NAME_STAGING }}/api/auth/login)
+              ${{ env.AZURE_WEBAPP_URL_STAGING }}/api/auth/login)
           done
           [ "$code" = "429" ] || { echo "Expected 429 after repeated logins, got $code"; exit 1; }
-           
+
           echo "Staging smoke tests passed."
