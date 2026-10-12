@@ -10,6 +10,8 @@ on:
 env:
   AZURE_WEBAPP_NAME: 'myapi-time-birupakhya'   
   AZURE_WEBAPP_URL: 'https://myapi-time-birupakhya-eke3dpavctbhb3h9.centralindia-01.azurewebsites.net'
+  AZURE_WEBAPP_NAME_STAGING: 'myapi-time-birupakhya-staging'
+  AZURE_WEBAPP_URL_STAGING: 'myapi-time-birupakhya-staging-bshhb8bagjh0d4hk.centralindia-01.azurewebsites.net'
   DOTNET_VERSION: '10.0.x'
 
 jobs:
@@ -51,8 +53,35 @@ jobs:
           name: api-package
           path: ./publish
 
-  deploy:
+  deploy-staging:
     needs: build
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    environment:
+      name: Staging
+      url: ${{ env.AZURE_WEBAPP_URL_STAGING }}
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: api-package
+          path: ./publish
+
+      - name: Deploy to Azure Web App (Staging)
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME_STAGING }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_STAGING }}
+          package: ./publish
+
+      - name: Smoke Test (Staging)
+        run: |
+          curl --fail --silent --show-error \
+            --retry 10 --retry-delay 15 --retry-all-errors \
+            ${{ env.AZURE_WEBAPP_URL_STAGING }}/health
+  deploy-production:
+    needs: deploy-staging
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     environment:
