@@ -85,11 +85,29 @@ jobs:
           app-name: ${{ env.AZURE_WEBAPP_NAME_STAGING }}
           package: ./publish
 
+      
       - name: Smoke Test (Staging)
         run: |
+          set -e
+
+          # Verify health endpoint
           curl --fail --silent --show-error \
             --retry 10 --retry-delay 15 --retry-all-errors \
-            ${{ env.AZURE_WEBAPP_URL_STAGING }}/health
+            "${{ env.AZURE_WEBAPP_URL_STAGING }}/health"
+
+          # Verify protected endpoint returns 401
+          code=$(curl --silent --show-error \
+            --output /dev/null \
+            --write-out "%{http_code}" \
+            "${{ env.AZURE_WEBAPP_URL_STAGING }}/api/favorites")
+
+          if [ "$code" != "401" ]; then
+            echo "Expected HTTP 401 from /api/favorites, got $code"
+            exit 1
+          fi
+
+          echo "Staging smoke tests passed."
+
 
   deploy-production:
     needs: deploy-staging
@@ -112,15 +130,31 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          
+
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           package: ./publish
 
-      - name: Smoke Test
+      - name: Smoke Test (Staging)
         run: |
+          set -e
+
+          # Verify health endpoint
           curl --fail --silent --show-error \
             --retry 10 --retry-delay 15 --retry-all-errors \
-            ${{ env.AZURE_WEBAPP_URL }}/health
+            "${{ env.AZURE_WEBAPP_URL_STAGING }}/health"
+
+          # Verify protected endpoint returns 401
+          code=$(curl --silent --show-error \
+            --output /dev/null \
+            --write-out "%{http_code}" \
+            "${{ env.AZURE_WEBAPP_URL_STAGING }}/api/favorites")
+
+          if [ "$code" != "401" ]; then
+            echo "Expected HTTP 401 from /api/favorites, got $code"
+            exit 1
+          fi
+
+          echo "Staging smoke tests passed."

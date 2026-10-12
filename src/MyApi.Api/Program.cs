@@ -1,55 +1,104 @@
-using Scalar.AspNetCore;
+using System.Text;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using MyApi.Api.Auth;
+using MyApi.Api.Data;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-if(!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
 {
     builder.Services.AddOpenTelemetry().UseAzureMonitor();
 }
-// OpenAPI document generation (built into .NET)
+
 builder.Services.AddOpenApi();
-
-// Inject a clock so we can fake it in tests later
 builder.Services.AddSingleton(TimeProvider.System);
-
 builder.Services.AddHealthChecks();
+
+// --- Database ---
+builder.Services.AddDbContext<AppDbContext>((sp, options) =>
+{
+    var cs = sp.GetRequiredService<IConfiguration>().GetConnectionString("Default")
+             ?? "Data Source=app.db";
+    options.UseSqlite(cs);
+});
+builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+
+// --- JWT authentication ---
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("Jwt:Key is not configured.");
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "MyApi";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "MyApi.Clients";
+
+builder.Services.AddSingleton(new JwtTokenService(jwtKey, jwtIssuer, jwtAudience));
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =>
+    {
+        o.MapInboundClaims = false; // keep claim names like "sub" as-is
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtIssuer,
+            ValidateAudience = true,
+            ValidAudience = jwtAudience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    });
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-var enableDocs = app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("EnableApiDocs");
+// Create/upgrade the database at startup (fine for a single-instance learning app)
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var csb = new SqliteConnectionStringBuilder(db.Database.GetConnectionString());
+    if (!string.IsNullOrEmpty(csb.DataSource) && csb.DataSource != ":memory:")
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(csb.DataSource))!);
+    }
+    db.Database.Migrate();
+}
 
-if(enableDocs)
+app.UseAuthentication();
+app.UseAuthorization();
+
+var enableDocs = app.Environment.IsDevelopment()
+                 || app.Configuration.GetValue<bool>("EnableApiDocs");
+
+if (enableDocs)
 {
     app.MapOpenApi();
     app.MapScalarApiReference();
 }
 
-
-app.MapGet("/", () => enableDocs ? Results.Redirect("/scalar") : Results.Ok("MyApi is running."))
+app.MapGet("/", () => enableDocs ? Results.Redirect("/scalar") : Results.Ok("MyApi is running"))
    .ExcludeFromDescription();
 
-app.MapHealthChecks("/health").ExcludeFromDescription();    
+app.MapHealthChecks("/health").ExcludeFromDescription();
 
-// GET /api/time -> current time on the server
-app.MapGet("/api/time", (TimeProvider clock) =>
+static TimeResponse ToResponse(DateTimeOffset utcNow, TimeZoneInfo tz)
 {
-    var tz = clock.LocalTimeZone;
-    var utcNow = clock.GetUtcNow();
     var localNow = TimeZoneInfo.ConvertTime(utcNow, tz);
+    return new TimeResponse(utcNow, localNow, tz.Id, tz.DisplayName, localNow.Offset.ToString());
+}
 
-    return Results.Ok(new TimeResponse(
-        UtcNow: utcNow,
-        LocalNow: localNow,
-        TimeZoneId: tz.Id,
-        TimeZoneName: tz.DisplayName,
-        UtcOffset: localNow.Offset.ToString()));
-})
+// ---------- Time endpoints (public) ----------
+app.MapGet("/api/time", (TimeProvider clock) =>
+    Results.Ok(ToResponse(clock.GetUtcNow(), clock.LocalTimeZone)))
 .WithName("GetCurrentTime")
 .WithSummary("Gets the current server time and time zone")
 .Produces<TimeResponse>(StatusCodes.Status200OK);
 
-// GET /api/time/{timeZoneId} -> current time in a given time zone
 app.MapGet("/api/time/{**timeZoneId}", (string timeZoneId, TimeProvider clock, ILogger<Program> logger) =>
 {
     TimeZoneInfo tz;
@@ -64,21 +113,110 @@ app.MapGet("/api/time/{**timeZoneId}", (string timeZoneId, TimeProvider clock, I
     }
 
     logger.LogInformation("Returning time for zone {TimeZoneId}", timeZoneId);
-
-    var utcNow = clock.GetUtcNow();
-    var localNow = TimeZoneInfo.ConvertTime(utcNow, tz);
-
-    return Results.Ok(new TimeResponse(
-        UtcNow: utcNow,
-        LocalNow: localNow,
-        TimeZoneId: tz.Id,
-        TimeZoneName: tz.DisplayName,
-        UtcOffset: localNow.Offset.ToString()));
+    return Results.Ok(ToResponse(clock.GetUtcNow(), tz));
 })
 .WithName("GetTimeByTimeZone")
 .WithSummary("Gets the current time in the given time zone (e.g. Asia/Kolkata)")
 .Produces<TimeResponse>(StatusCodes.Status200OK)
 .Produces(StatusCodes.Status404NotFound);
+
+// ---------- Auth endpoints (public) ----------
+app.MapPost("/api/auth/register", async (RegisterRequest req, AppDbContext db, IPasswordHasher<User> hasher) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Username) || req.Password is null || req.Password.Length < 8)
+    {
+        return Results.BadRequest(new { error = "Username is required and password must be at least 8 characters." });
+    }
+
+    var username = req.Username.Trim().ToLowerInvariant();
+    if (await db.Users.AnyAsync(u => u.Username == username))
+    {
+        return Results.Conflict(new { error = "Username is already taken." });
+    }
+
+    var user = new User { Username = username };
+    user.PasswordHash = hasher.HashPassword(user, req.Password);
+    db.Users.Add(user);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/users/{user.Id}", new { user.Id, user.Username });
+})
+.WithTags("Auth");
+
+app.MapPost("/api/auth/login", async (LoginRequest req, AppDbContext db,
+    IPasswordHasher<User> hasher, JwtTokenService tokens) =>
+{
+    var username = (req.Username ?? "").Trim().ToLowerInvariant();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Username == username);
+
+    if (user is null ||
+        hasher.VerifyHashedPassword(user, user.PasswordHash, req.Password ?? "") == PasswordVerificationResult.Failed)
+    {
+        return Results.Unauthorized();
+    }
+
+    var (token, expires) = tokens.Create(user);
+    return Results.Ok(new LoginResponse(token, expires));
+})
+.WithTags("Auth");
+
+// ---------- Favorites (JWT required) ----------
+var favorites = app.MapGroup("/api/favorites").RequireAuthorization().WithTags("Favorites");
+
+favorites.MapGet("/", async (System.Security.Claims.ClaimsPrincipal principal, AppDbContext db, TimeProvider clock) =>
+{
+    var userId = principal.GetUserId();
+    var items = await db.FavoriteZones.Where(f => f.UserId == userId).OrderBy(f => f.Id).ToListAsync();
+    var utcNow = clock.GetUtcNow();
+
+    return Results.Ok(items.Select(f => new FavoriteResponse(
+        f.Id, f.TimeZoneId,
+        TimeZoneInfo.ConvertTime(utcNow, TimeZoneInfo.FindSystemTimeZoneById(f.TimeZoneId)))));
+});
+
+favorites.MapPost("/", async (AddFavoriteRequest req, System.Security.Claims.ClaimsPrincipal principal,
+    AppDbContext db, TimeProvider clock) =>
+{
+    if (string.IsNullOrWhiteSpace(req.TimeZoneId))
+    {
+        return Results.BadRequest(new { error = "timeZoneId is required." });
+    }
+
+    TimeZoneInfo tz;
+    try
+    {
+        tz = TimeZoneInfo.FindSystemTimeZoneById(req.TimeZoneId);
+    }
+    catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+    {
+        return Results.BadRequest(new { error = $"Time zone '{req.TimeZoneId}' is not valid." });
+    }
+
+    var userId = principal.GetUserId();
+    if (await db.FavoriteZones.AnyAsync(f => f.UserId == userId && f.TimeZoneId == tz.Id))
+    {
+        return Results.Conflict(new { error = "Already in your favorites." });
+    }
+
+    var fav = new FavoriteZone { UserId = userId, TimeZoneId = tz.Id, CreatedAtUtc = clock.GetUtcNow() };
+    db.FavoriteZones.Add(fav);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/favorites/{fav.Id}", new FavoriteResponse(
+        fav.Id, fav.TimeZoneId, TimeZoneInfo.ConvertTime(clock.GetUtcNow(), tz)));
+});
+
+favorites.MapDelete("/{id:int}", async (int id, System.Security.Claims.ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var userId = principal.GetUserId();
+    // Filtering by UserId means you can never delete someone else's data
+    var fav = await db.FavoriteZones.FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
+    if (fav is null) return Results.NotFound();
+
+    db.FavoriteZones.Remove(fav);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
 
 app.Run();
 
@@ -89,5 +227,10 @@ public record TimeResponse(
     string TimeZoneName,
     string UtcOffset);
 
-// Makes Program visible to the test project (WebApplicationFactory) in the next step
+public record RegisterRequest(string Username, string Password);
+public record LoginRequest(string Username, string Password);
+public record LoginResponse(string Token, DateTimeOffset ExpiresAtUtc);
+public record AddFavoriteRequest(string TimeZoneId);
+public record FavoriteResponse(int Id, string TimeZoneId, DateTimeOffset LocalNow);
+
 public partial class Program;
