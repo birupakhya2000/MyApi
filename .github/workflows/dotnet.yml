@@ -15,7 +15,7 @@ env:
   AZURE_WEBAPP_NAME: 'myapi-time-birupakhya'   
   AZURE_WEBAPP_URL: 'https://myapi-time-birupakhya-eke3dpavctbhb3h9.centralindia-01.azurewebsites.net'
   AZURE_WEBAPP_NAME_STAGING: 'myapi-time-birupakhya-staging'
-  AZURE_WEBAPP_URL_STAGING: 'myapi-time-birupakhya-staging-bshhb8bagjh0d4hk.centralindia-01.azurewebsites.net'
+  AZURE_WEBAPP_URL_STAGING: 'https://myapi-time-birupakhya-staging-bshhb8bagjh0d4hk.centralindia-01.azurewebsites.net'
   DOTNET_VERSION: '10.0.x'
 
 jobs:
