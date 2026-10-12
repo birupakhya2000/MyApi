@@ -11,6 +11,7 @@ using Scalar.AspNetCore;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -85,6 +86,15 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("auth", ctx => IpPartition(ctx, "RateLimiting:AuthPermitLimit", 10));
 });
 
+
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // App Service's proxy addresses are not fixed, so trust the forwarded headers it sends
+    o.KnownIPNetworks.Clear();
+    o.KnownProxies.Clear();
+});
+
 var app = builder.Build();
 app.Use(async (ctx, next) =>
 {
@@ -105,6 +115,7 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
+app.UseForwardedHeaders();
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();

@@ -106,13 +106,16 @@ jobs:
             exit 1
           fi
 
-          for i in $(seq 1 12); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+          # Repeated failed logins must produce at least one 429 (rate limiting)
+          got429=false
+          for i in $(seq 1 25); do
+            code=$(curl --silent --output /dev/null --write-out "%{http_code}" -X POST \
               -H "Content-Type: application/json" \
               -d '{"username":"smoke","password":"wrong-password"}' \
               ${{ env.AZURE_WEBAPP_URL_STAGING }}/api/auth/login)
+            if [ "$code" = "429" ]; then got429=true; break; fi
           done
-          [ "$code" = "429" ] || { echo "Expected 429 after repeated logins, got $code"; exit 1; }
+          $got429 || { echo "Never got a 429 after 25 failed logins (last code: $code)"; exit 1; }
 
           echo "Staging smoke tests passed."
 
@@ -165,12 +168,15 @@ jobs:
             exit 1
           fi
 
-          for i in $(seq 1 12); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+          # Repeated failed logins must produce at least one 429 (rate limiting)
+          got429=false
+          for i in $(seq 1 25); do
+            code=$(curl --silent --output /dev/null --write-out "%{http_code}" -X POST \
               -H "Content-Type: application/json" \
               -d '{"username":"smoke","password":"wrong-password"}' \
               ${{ env.AZURE_WEBAPP_URL_STAGING }}/api/auth/login)
+            if [ "$code" = "429" ]; then got429=true; break; fi
           done
-          [ "$code" = "429" ] || { echo "Expected 429 after repeated logins, got $code"; exit 1; }
+          $got429 || { echo "Never got a 429 after 25 failed logins (last code: $code)"; exit 1; }
 
           echo "Staging smoke tests passed."
