@@ -96,6 +96,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
 });
 
 var app = builder.Build();
+
+app.UseForwardedHeaders();
+
 app.Use(async (ctx, next) =>
 {
     ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
@@ -115,7 +118,7 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
-app.UseForwardedHeaders();
+
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
