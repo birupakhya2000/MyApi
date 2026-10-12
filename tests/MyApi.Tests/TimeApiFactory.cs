@@ -24,7 +24,10 @@ namespace MyApi.Tests
             builder.ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:Default"] = $"Data Source={_dbPath}"
+                    ["ConnectionStrings:Default"] = $"Data Source={_dbPath}",
+                    ["RateLimiting:AuthPermitLimit"] = "1000",
+                    ["RateLimiting:GlobalPermitLimit"] = "10000",
+                    ["Cors:AllowedOrigins:0"] = "https://app.example.com"
                 }));
 
             builder.ConfigureServices(services =>

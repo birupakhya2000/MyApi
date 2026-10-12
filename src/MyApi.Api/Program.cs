@@ -8,6 +8,9 @@ using Microsoft.IdentityModel.Tokens;
 using MyApi.Api.Auth;
 using MyApi.Api.Data;
 using Scalar.AspNetCore;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -55,8 +58,41 @@ builder.Services
     });
 builder.Services.AddAuthorization();
 
-var app = builder.Build();
+// --- CORS: allowed origins come from config (Cors:AllowedOrigins:0, :1, ...) ---
+builder.Services.AddCors();
+builder.Services.AddOptions<CorsOptions>().Configure<IConfiguration>((options, config) =>
+{
+    var origins = config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+    options.AddDefaultPolicy(p => p.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod());
+});
 
+// --- Rate limiting (per client IP). Limits are read from config on each request ---
+static RateLimitPartition<string> IpPartition(HttpContext ctx, string setting, int fallback) =>
+    RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = ctx.RequestServices.GetRequiredService<IConfiguration>()
+                             .GetValue<int?>(setting) ?? fallback,
+            Window = TimeSpan.FromMinutes(1)
+        });
+
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        IpPartition(ctx, "RateLimiting:GlobalPermitLimit", 100));
+    o.AddPolicy("auth", ctx => IpPartition(ctx, "RateLimiting:AuthPermitLimit", 10));
+});
+
+var app = builder.Build();
+app.Use(async (ctx, next) =>
+{
+    ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    ctx.Response.Headers["X-Frame-Options"] = "DENY";
+    ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+    await next();
+});
 // Create/upgrade the database at startup (fine for a single-instance learning app)
 using (var scope = app.Services.CreateScope())
 {
@@ -69,6 +105,8 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
+app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -141,7 +179,8 @@ app.MapPost("/api/auth/register", async (RegisterRequest req, AppDbContext db, I
 
     return Results.Created($"/api/users/{user.Id}", new { user.Id, user.Username });
 })
-.WithTags("Auth");
+.WithTags("Auth")
+.RequireRateLimiting("auth");
 
 app.MapPost("/api/auth/login", async (LoginRequest req, AppDbContext db,
     IPasswordHasher<User> hasher, JwtTokenService tokens) =>
@@ -158,7 +197,8 @@ app.MapPost("/api/auth/login", async (LoginRequest req, AppDbContext db,
     var (token, expires) = tokens.Create(user);
     return Results.Ok(new LoginResponse(token, expires));
 })
-.WithTags("Auth");
+.WithTags("Auth")
+.RequireRateLimiting("auth");
 
 // ---------- Favorites (JWT required) ----------
 var favorites = app.MapGroup("/api/favorites").RequireAuthorization().WithTags("Favorites");
