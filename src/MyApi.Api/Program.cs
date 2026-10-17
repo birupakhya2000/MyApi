@@ -1,17 +1,21 @@
 using System.Text;
+using System.Threading.RateLimiting;
+
 using Azure.Monitor.OpenTelemetry.AspNetCore;
+
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+
 using MyApi.Api.Auth;
 using MyApi.Api.Data;
+
 using Scalar.AspNetCore;
-using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Cors.Infrastructure;
-using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 

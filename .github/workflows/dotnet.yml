@@ -11,6 +11,10 @@ permissions:
       id-token: write
       contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   AZURE_WEBAPP_NAME: 'myapi-time-birupakhya'   
   AZURE_WEBAPP_URL: 'https://myapi-time-birupakhya-eke3dpavctbhb3h9.centralindia-01.azurewebsites.net'
@@ -42,11 +46,34 @@ jobs:
       - name: Restore
         run: dotnet restore
 
+      - name: Check formatting
+        run: dotnet format MyApi.slnx --verify-no-changes --no-restore
+
       - name: Build
         run: dotnet build --configuration Release --no-restore
+      
+      - name: Check for vulnerable packages
+        run: |
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee audit.txt
+          if grep -q "has the following vulnerable packages" audit.txt; then
+            echo "Vulnerable packages found"
+            exit 1
+          fi
 
       - name: Test
-        run: dotnet test --configuration Release --no-build --verbosity normal
+        run: dotnet test --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./coverage
+
+      - name: Coverage report
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          reportgenerator -reports:"coverage/**/coverage.cobertura.xml" -targetdir:coverage/report -reporttypes:"MarkdownSummaryGithub;TextSummary"
+          cat coverage/report/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/report
 
       - name: Publish
         run: dotnet publish src/MyApi.Api/MyApi.Api.csproj --configuration Release --no-build --output ./publish
@@ -141,35 +168,28 @@ jobs:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           package: ./publish
 
-      - name: Smoke Test (Staging)
+      - name: Smoke Test (Production)
         run: |
-          set -e
+          BASE="${{ env.AZURE_WEBAPP_URL }}"
 
-          # Verify health endpoint
-          curl --fail --silent --show-error \
-            --retry 10 --retry-delay 15 --retry-all-errors \
-            "${{ env.AZURE_WEBAPP_URL_STAGING }}/health"
+          ok=false
+          for i in $(seq 1 20); do
+            code=$(curl --silent --output /tmp/health.txt --write-out "%{http_code}" "$BASE/health")
+            echo "Attempt $i: HTTP $code"
+            if [ "$code" = "200" ]; then ok=true; break; fi
+            # 403 is not a startup delay; stop early and show why
+            if [ "$code" = "403" ]; then break; fi
+            sleep 15
+          done
 
-          # Verify protected endpoint returns 401
-          code=$(curl --silent --show-error \
-            --output /dev/null \
-            --write-out "%{http_code}" \
-            "${{ env.AZURE_WEBAPP_URL_STAGING }}/api/favorites")
-
-          if [ "$code" != "401" ]; then
-            echo "Expected HTTP 401 from /api/favorites, got $code"
+          if [ "$ok" != "true" ]; then
+            echo "Health check failed. Last response body:"
+            head -c 1500 /tmp/health.txt
+            echo
             exit 1
           fi
 
-          # Repeated failed logins must produce at least one 429 (rate limiting)
-          # got429=false
-          # for i in $(seq 1 25); do
-          #   code=$(curl --silent --output /dev/null --write-out "%{http_code}" -X POST \
-          #     -H "Content-Type: application/json" \
-          #     -d '{"username":"smoke","password":"wrong-password"}' \
-          #     ${{ env.AZURE_WEBAPP_URL_STAGING }}/api/auth/login)
-          #   if [ "$code" = "429" ]; then got429=true; break; fi
-          # done
-          # $got429 || { echo "Never got a 429 after 25 failed logins (last code: $code)"; exit 1; }
+          code=$(curl --silent --output /dev/null --write-out "%{http_code}" "$BASE/api/favorites")
+          [ "$code" = "401" ] || { echo "Expected 401 from /api/favorites, got $code"; exit 1; }
 
-          echo "Staging smoke tests passed."
+          echo "Production smoke tests passed."
