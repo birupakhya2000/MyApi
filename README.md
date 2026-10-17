@@ -2,7 +2,7 @@
 
 # 
 
-# \[!\[CI/CD](https://github.com/birupakhya2000/MyApi/actions/workflows/ci.yml/badge.svg)](https://github.com/birupakhya2000/MyApi/actions/workflows/ci.yml)
+# \[!\[CI/CD](https://github.com/birupakhya2000/MyApi/actions/workflows/ci.yml/badge.svg)](https://github.com/birupakhya2000/MyApi/actions/workflows/dotnet.yml)
 
 # 
 
