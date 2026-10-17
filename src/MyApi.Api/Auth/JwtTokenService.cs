@@ -1,8 +1,10 @@
-﻿using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Tokens;
-using MyApi.Api.Data;
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text;
+
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+
+using MyApi.Api.Data;
 
 namespace MyApi.Api.Auth
 {
