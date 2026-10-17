@@ -25,11 +25,27 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHealthChecks();
 
 // --- Database ---
+// --- Database: SqlServer by default (Azure), Sqlite for local dev and tests ---
+var dbProvider = builder.Configuration["Database:Provider"] ?? "SqlServer";
+var useSqlite = dbProvider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase);
+
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 {
     var cs = sp.GetRequiredService<IConfiguration>().GetConnectionString("Default")
-             ?? "Data Source=app.db";
-    options.UseSqlite(cs);
+             ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
+
+    if (useSqlite)
+    {
+        options.UseSqlite(cs);
+    }
+    else
+    {
+        // Retries cover the free tier's auto-pause: the first connection can fail while it wakes up
+        options.UseSqlServer(cs, sql => sql.EnableRetryOnFailure(
+            maxRetryCount: 6,
+            maxRetryDelay: TimeSpan.FromSeconds(15),
+            errorNumbersToAdd: null));
+    }
 });
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 
@@ -110,12 +126,20 @@ app.Use(async (ctx, next) =>
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var csb = new SqliteConnectionStringBuilder(db.Database.GetConnectionString());
-    if (!string.IsNullOrEmpty(csb.DataSource) && csb.DataSource != ":memory:")
+
+    if (useSqlite)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(csb.DataSource))!);
+        var csb = new SqliteConnectionStringBuilder(db.Database.GetConnectionString());
+        if (!string.IsNullOrEmpty(csb.DataSource) && csb.DataSource != ":memory:")
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(csb.DataSource))!);
+        }
+        db.Database.EnsureCreated();   // local dev and tests: no migrations needed
     }
-    db.Database.Migrate();
+    else
+    {
+        db.Database.Migrate();         // Azure SQL: apply real migrations
+    }
 }
 
 
