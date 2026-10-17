@@ -24,6 +24,7 @@ namespace MyApi.Tests
             builder.ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
+                    ["Database:Provider"] = "Sqlite",
                     ["ConnectionStrings:Default"] = $"Data Source={_dbPath}",
                     ["RateLimiting:AuthPermitLimit"] = "1000",
                     ["RateLimiting:GlobalPermitLimit"] = "10000",
