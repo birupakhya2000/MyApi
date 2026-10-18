@@ -1,0 +1,56 @@
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_NAME: ghcr.io/birupakhya2000/myapi   # image names must be lowercase
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t myapi:ci .
+
+      - name: Run container and smoke test
+        run: |
+          docker run -d --name myapi -p 8080:8080 \
+            -e Jwt__Key="ci-only-key-ci-only-key-ci-only-key-123456" \
+            -e Database__Provider=Sqlite \
+            -e "ConnectionStrings__Default=Data Source=/tmp/app.db" \
+            myapi:ci
+
+          curl --fail --silent --show-error \
+            --retry 15 --retry-delay 2 --retry-all-errors \
+            http://localhost:8080/health
+          echo
+
+          # Time zone data must exist inside the image
+          curl --fail --silent --show-error http://localhost:8080/api/time/Asia/Kolkata
+          echo
+
+          # Auth must be enforced
+          code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/favorites)
+          [ "$code" = "401" ] || { echo "Expected 401, got $code"; exit 1; }
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs myapi
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        run: |
+          docker tag myapi:ci "$IMAGE_NAME:${{ github.sha }}"
+          docker tag myapi:ci "$IMAGE_NAME:latest"
+          docker push "$IMAGE_NAME:${{ github.sha }}"
+          docker push "$IMAGE_NAME:latest"
