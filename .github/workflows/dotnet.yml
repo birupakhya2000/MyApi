@@ -50,7 +50,10 @@ jobs:
         run: dotnet format MyApi.slnx --verify-no-changes --no-restore
 
       - name: Build
-        run: dotnet build --configuration Release --no-restore
+        run: >
+          dotnet build --configuration Release --no-restore
+          -p:Version=1.0.${{ github.run_number }}
+          -p:InformationalVersion=1.0.${{ github.run_number }}+${{ github.sha }}
       
       - name: Check for vulnerable packages
         run: |
@@ -127,6 +130,14 @@ jobs:
             sleep 15
           done
 
+          # The version we just built must be the one serving traffic
+          ok=false
+          for i in $(seq 1 12); do
+            if curl --silent "$BASE/version" | grep -q "1.0.${{ github.run_number }}"; then ok=true; break; fi
+            sleep 15
+          done
+          $ok || { echo "Expected version 1.0.${{ github.run_number }} is not live"; exit 1; }
+
           if [ "$ok" != "true" ]; then
             echo "Health check failed. Last response body:"
             head -c 1500 /tmp/health.txt
@@ -181,6 +192,14 @@ jobs:
             if [ "$code" = "403" ]; then break; fi
             sleep 15
           done
+
+          # The version we just built must be the one serving traffic
+          ok=false
+          for i in $(seq 1 12); do
+            if curl --silent "$BASE/version" | grep -q "1.0.${{ github.run_number }}"; then ok=true; break; fi
+            sleep 15
+          done
+          $ok || { echo "Expected version 1.0.${{ github.run_number }} is not live"; exit 1; }
 
           if [ "$ok" != "true" ]; then
             echo "Health check failed. Last response body:"

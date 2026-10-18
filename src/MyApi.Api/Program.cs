@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text;
 using System.Threading.RateLimiting;
 
@@ -178,6 +179,13 @@ app.MapGet("/", () => enableDocs ? Results.Redirect("/scalar") : Results.Ok("MyA
    .ExcludeFromDescription();
 
 app.MapHealthChecks("/health").ExcludeFromDescription();
+
+app.MapGet("/version", () =>
+{
+    var version = typeof(Program).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
+    return Results.Ok(new { version, environment = app.Environment.EnvironmentName });
+}).ExcludeFromDescription();
 
 static TimeResponse ToResponse(DateTimeOffset utcNow, TimeZoneInfo tz)
 {

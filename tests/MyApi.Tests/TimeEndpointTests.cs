@@ -85,5 +85,14 @@ namespace MyApi.Tests
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
         }
+
+        [Fact]
+        public async Task Version_ReturnsOk()
+        {
+            var response = await _client.GetAsync("/version");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Contains("version", await response.Content.ReadAsStringAsync());
+        }
     }
 }
