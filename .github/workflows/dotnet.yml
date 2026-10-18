@@ -139,6 +139,7 @@ jobs:
 
           echo "Staging smoke tests passed."
 
+
   deploy-production:
     needs: deploy-staging
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -173,7 +174,7 @@ jobs:
 
           ok=false
           for i in $(seq 1 20); do
-            code=$(curl --silent --output /tmp/health.txt --write-out "%{http_code}" "$BASE/healthz")
+            code=$(curl --silent --output /tmp/health.txt --write-out "%{http_code}" "$BASE/health")
             echo "Attempt $i: HTTP $code"
             if [ "$code" = "200" ]; then ok=true; break; fi
             # 403 is not a startup delay; stop early and show why
