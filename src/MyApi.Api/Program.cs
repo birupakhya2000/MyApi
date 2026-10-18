@@ -6,6 +6,7 @@ using Azure.Monitor.OpenTelemetry.AspNetCore;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
@@ -27,7 +28,9 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNEC
 
 builder.Services.AddOpenApi();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddHealthChecks();
+builder.Services.AddProblemDetails();
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<AppDbContext>("database", tags: ["ready"]);
 
 // --- Database ---
 // --- Database: SqlServer by default (Azure), Sqlite for local dev and tests ---
@@ -133,13 +136,21 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 
+// Headers are set when the response starts, so they survive the exception handler, which clears the response
 app.Use(async (ctx, next) =>
 {
-    ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
-    ctx.Response.Headers["X-Frame-Options"] = "DENY";
-    ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+    ctx.Response.OnStarting(() =>
+    {
+        ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        ctx.Response.Headers["X-Frame-Options"] = "DENY";
+        ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+        return Task.CompletedTask;
+    });
     await next();
 });
+
+app.UseExceptionHandler();   // unhandled exception -> ProblemDetails, no stack trace
+app.UseStatusCodePages();    // empty 401/404/429 responses -> ProblemDetails
 // Create/upgrade the database at startup (fine for a single-instance learning app)
 using (var scope = app.Services.CreateScope())
 {
@@ -178,7 +189,15 @@ if (enableDocs)
 app.MapGet("/", () => enableDocs ? Results.Redirect("/scalar") : Results.Ok("MyApi is running"))
    .ExcludeFromDescription();
 
-app.MapHealthChecks("/health").ExcludeFromDescription();
+// Liveness: is the process up? Runs no checks, so it never touches the database
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false })
+   .ExcludeFromDescription();
+
+// Readiness: can the app reach its database?
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+}).ExcludeFromDescription();
 
 app.MapGet("/version", () =>
 {
@@ -226,9 +245,10 @@ app.MapGet("/api/time/{**timeZoneId}", (string timeZoneId, TimeProvider clock, I
 // ---------- Auth endpoints (public) ----------
 app.MapPost("/api/auth/register", async (RegisterRequest req, AppDbContext db, IPasswordHasher<User> hasher) =>
 {
-    if (string.IsNullOrWhiteSpace(req.Username) || req.Password is null || req.Password.Length < 8)
+    var errors = RequestValidation.Validate(req);
+    if (errors.Count > 0)
     {
-        return Results.BadRequest(new { error = "Username is required and password must be at least 8 characters." });
+        return Results.ValidationProblem(errors);
     }
 
     var username = req.Username.Trim().ToLowerInvariant();
@@ -250,6 +270,7 @@ app.MapPost("/api/auth/register", async (RegisterRequest req, AppDbContext db, I
 app.MapPost("/api/auth/login", async (LoginRequest req, AppDbContext db,
     IPasswordHasher<User> hasher, JwtTokenService tokens) =>
 {
+    if ((req.Password?.Length ?? 0) > 128) return Results.Unauthorized();
     var username = (req.Username ?? "").Trim().ToLowerInvariant();
     var user = await db.Users.FirstOrDefaultAsync(u => u.Username == username);
 
@@ -282,7 +303,7 @@ favorites.MapGet("/", async (System.Security.Claims.ClaimsPrincipal principal, A
 favorites.MapPost("/", async (AddFavoriteRequest req, System.Security.Claims.ClaimsPrincipal principal,
     AppDbContext db, TimeProvider clock) =>
 {
-    if (string.IsNullOrWhiteSpace(req.TimeZoneId))
+    if (string.IsNullOrWhiteSpace(req.TimeZoneId) || req.TimeZoneId.Length > 100)
     {
         return Results.BadRequest(new { error = "timeZoneId is required." });
     }
