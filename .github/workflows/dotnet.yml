@@ -130,6 +130,12 @@ jobs:
             sleep 15
           done
 
+          # Readiness: the app can reach its database (retries cover the free DB waking up)
+          curl --fail --silent --show-error \
+            --retry 10 --retry-delay 15 --retry-all-errors \
+            "$BASE/health/ready"
+          echo
+
           # The version we just built must be the one serving traffic
           ok=false
           for i in $(seq 1 12); do
@@ -192,6 +198,12 @@ jobs:
             if [ "$code" = "403" ]; then break; fi
             sleep 15
           done
+
+          # Readiness: the app can reach its database (retries cover the free DB waking up)
+          curl --fail --silent --show-error \
+            --retry 10 --retry-delay 15 --retry-all-errors \
+            "$BASE/health/ready"
+          echo
 
           # The version we just built must be the one serving traffic
           ok=false
