@@ -193,6 +193,8 @@ static TimeResponse ToResponse(DateTimeOffset utcNow, TimeZoneInfo tz)
     return new TimeResponse(utcNow, localNow, tz.Id, tz.DisplayName, localNow.Offset.ToString());
 }
 
+static string Clean(string value) => value.Replace("\r", "").Replace("\n", "");
+
 // ---------- Time endpoints (public) ----------
 app.MapGet("/api/time", (TimeProvider clock) =>
     Results.Ok(ToResponse(clock.GetUtcNow(), clock.LocalTimeZone)))
@@ -209,11 +211,11 @@ app.MapGet("/api/time/{**timeZoneId}", (string timeZoneId, TimeProvider clock, I
     }
     catch (TimeZoneNotFoundException)
     {
-        logger.LogWarning("Time zone {TimeZoneId} was not found", timeZoneId);
+        logger.LogWarning("Time zone {TimeZoneId} was not found", Clean(timeZoneId));
         return Results.NotFound(new { error = $"Time zone '{timeZoneId}' was not found." });
     }
 
-    logger.LogInformation("Returning time for zone {TimeZoneId}", timeZoneId);
+    logger.LogInformation("Returning time for zone {TimeZoneId}", Clean(timeZoneId));
     return Results.Ok(ToResponse(clock.GetUtcNow(), tz));
 })
 .WithName("GetTimeByTimeZone")
