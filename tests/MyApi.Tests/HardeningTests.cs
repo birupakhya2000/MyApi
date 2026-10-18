@@ -2,7 +2,6 @@
 using System.Net.Http.Json;
 
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -58,27 +57,35 @@ public class HardeningTests : IClassFixture<TimeApiFactory>
     [Fact]
     public async Task UnhandledException_ReturnsProblemDetails_WithoutLeakingDetails()
     {
-        // Production mode, so nothing developer-friendly can leak
-        var factory = _factory.WithWebHostBuilder(builder =>
+        // Program.cs reads Jwt:Key before test config overrides apply, and
+        // appsettings.Development.json isn't loaded in Production, so supply the key
+        // through an environment variable, which is read at startup.
+        const string keyVariable = "Jwt__Key";
+        Environment.SetEnvironmentVariable(keyVariable, "test-only-key-test-only-key-test-only-key-1234");
+
+        try
         {
-            builder.UseEnvironment("Production");
-            builder.ConfigureAppConfiguration((_, config) =>
-                config.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["Jwt:Key"] = "test-only-key-test-only-key-test-only-key-1234"
-                }));
-            builder.ConfigureServices(services =>
+            // Production mode, so nothing developer-friendly can leak
+            var factory = _factory.WithWebHostBuilder(builder =>
             {
-                services.RemoveAll<TimeProvider>();
-                services.AddSingleton<TimeProvider>(new ThrowingTimeProvider());
+                builder.UseEnvironment("Production");
+                builder.ConfigureServices(services =>
+                {
+                    services.RemoveAll<TimeProvider>();
+                    services.AddSingleton<TimeProvider>(new ThrowingTimeProvider());
+                });
             });
-        });
 
-        var response = await factory.CreateClient().GetAsync("/api/time");
+            var response = await factory.CreateClient().GetAsync("/api/time");
 
-        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        Assert.DoesNotContain("secret-internal-detail", await response.Content.ReadAsStringAsync());
-        Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+            Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+            Assert.DoesNotContain("secret-internal-detail", await response.Content.ReadAsStringAsync());
+            Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(keyVariable, null);
+        }
     }
 }
