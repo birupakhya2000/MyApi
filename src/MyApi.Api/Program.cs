@@ -58,6 +58,17 @@ builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 // --- JWT authentication ---
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Jwt:Key is not configured.");
+
+if (jwtKey.StartsWith("@Microsoft.KeyVault", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException(
+        "Jwt:Key is an unresolved Key Vault reference. Check the app's managed identity and its access to the secret.");
+}
+
+if (jwtKey.Length < 32)
+{
+    throw new InvalidOperationException("Jwt:Key must be at least 32 characters.");
+}
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "MyApi";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "MyApi.Clients";
 
