@@ -30,15 +30,17 @@ builder.Services.AddHealthChecks();
 
 // --- Database ---
 // --- Database: SqlServer by default (Azure), Sqlite for local dev and tests ---
-var dbProvider = builder.Configuration["Database:Provider"] ?? "SqlServer";
-var useSqlite = dbProvider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase);
+// Read the provider lazily so test/host configuration overrides are honoured
+static bool IsSqlite(IConfiguration config) =>
+    string.Equals(config["Database:Provider"] ?? "SqlServer", "Sqlite", StringComparison.OrdinalIgnoreCase);
 
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 {
-    var cs = sp.GetRequiredService<IConfiguration>().GetConnectionString("Default")
+    var config = sp.GetRequiredService<IConfiguration>();
+    var cs = config.GetConnectionString("Default")
              ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
 
-    if (useSqlite)
+    if (IsSqlite(config))
     {
         options.UseSqlite(cs);
     }
@@ -131,7 +133,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-    if (useSqlite)
+    if (IsSqlite(app.Configuration))
     {
         var csb = new SqliteConnectionStringBuilder(db.Database.GetConnectionString());
         if (!string.IsNullOrEmpty(csb.DataSource) && csb.DataSource != ":memory:")
