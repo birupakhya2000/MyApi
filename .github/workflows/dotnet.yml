@@ -97,7 +97,7 @@ jobs:
 
     steps:
       - name: Download artifact from build job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: api-package
           path: ./publish
@@ -167,7 +167,7 @@ jobs:
 
     steps:
       - name: Download artifact from build job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: api-package
           path: ./publish
@@ -290,7 +290,7 @@ jobs:
 
     steps:
       - name: Download package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: api-package
           path: ./publish
