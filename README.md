@@ -1,44 +1,162 @@
-# \# MyApi
+# \# MyApi: Time Zone API
 
 # 
 
-# \[!\[CI/CD](https://github.com/birupakhya2000/MyApi/actions/workflows/ci.yml/badge.svg)](https://github.com/birupakhya2000/MyApi/actions/workflows/dotnet.yml)
+# \[!\[CI/CD](https://github.com/birupakhya2000/MyApi/actions/workflows/dotnet.yml/badge.svg)](https://github.com/birupakhya2000/MyApi/actions/workflows/dotnet.yml)
+
+# \[!\[CodeQL](https://github.com/birupakhya2000/MyApi/actions/workflows/codeql.yml/badge.svg)](https://github.com/birupakhya2000/MyApi/actions/workflows/codeql.yml)
 
 # 
 
-# A .NET 10 Minimal API that returns the current time in any time zone, with user accounts and saved favorite time zones.
+# A .NET 10 Minimal API that returns the current time in any time zone, with user accounts and saved favorite zones. The application is deliberately small. The point of the project is the \*\*delivery pipeline and production practices\*\* around it.
 
 # 
 
-# \## Features
+# \*\*Live:\*\* https://YOUR-PRODUCTION-URL/scalar
+
+# 
+
+# \## Architecture
+
+# 
+
+# ```mermaid
+
+# flowchart LR
+
+# &#x20;   Dev(\[Developer]) -->|pull request / push| GH\[GitHub]
+
+# &#x20;   GH --> CI\["CI: format check, vulnerability scan,<br/>build, tests with coverage,<br/>CodeQL, Bicep validation"]
+
+# &#x20;   CI --> IMG\["Docker image to GHCR"]
+
+# &#x20;   CI --> STG\["Deploy to Staging<br/>(OIDC login, smoke tests)"]
+
+# &#x20;   STG -->|passes| PRD\["Deploy to Production<br/>(same artifact)"]
+
+# &#x20;   PRD -->|passes| REL\["GitHub Release<br/>+ changelog"]
+
+# &#x20;   PRD -->|fails| RB\["Automatic rollback<br/>to last release"]
+
+# &#x20;   subgraph Azure
+
+# &#x20;       APPS\["App Service<br/>(staging + production)"]
+
+# &#x20;       SQL\[("Azure SQL")]
+
+# &#x20;       KV\["Key Vault"]
+
+# &#x20;       AI\["Application Insights"]
+
+# &#x20;       APPS -->|managed identity| SQL
+
+# &#x20;       APPS -->|managed identity| KV
+
+# &#x20;       APPS --> AI
+
+# &#x20;   end
+
+# &#x20;   STG --> APPS
+
+# &#x20;   PRD --> APPS
+
+# ```
+
+# 
+
+# \## What's in it
+
+# 
+
+# \*\*API\*\*
 
 # \- Time and time zone endpoints, documented with OpenAPI and Scalar
 
-# \- JWT authentication, with passwords hashed using ASP.NET's PasswordHasher
+# \- JWT authentication, passwords hashed with ASP.NET's `PasswordHasher`
 
-# \- EF Core with Azure SQL (SQLite locally and in tests)
+# \- Per-user favorites, always filtered by the user ID from the token
 
-# \- Rate limiting, CORS and security headers
+# \- Input validation, RFC 7807 ProblemDetails errors, rate limiting, CORS, security headers
 
-# \- Application Insights monitoring (OpenTelemetry)
+# \- Liveness (`/health`), readiness (`/health/ready`) and `/version` endpoints
 
 # 
 
-# \## CI/CD (GitHub Actions)
+# \*\*Pipeline (GitHub Actions)\*\*
 
-# Format check, vulnerability scan, build, test with coverage, then deploy to Staging, smoke test, and promote the same artifact to Production on Azure App Service. Azure login uses OIDC, so there are no stored passwords.
+# \- Format check, NuGet vulnerability scan, build, tests with coverage report
+
+# \- Build once, deploy the same artifact to Staging, then Production
+
+# \- Smoke tests after each deploy, including verifying the new version is live
+
+# \- Passwordless Azure login with OIDC federated credentials
+
+# \- Automatic GitHub Release with changelog; automatic rollback if production fails
+
+# \- CodeQL analysis, Dependabot updates, Docker image published to GHCR
+
+# 
+
+# \*\*Azure\*\*
+
+# \- App Service, Azure SQL (free offer), Key Vault, Application Insights
+
+# \- Managed identities for database and Key Vault access: no passwords in settings
+
+# \- Infrastructure defined in Bicep (`infra/main.bicep`)
+
+# 
+
+# \*\*Testing\*\*
+
+# \- xUnit integration tests with `WebApplicationFactory` and a fake clock
+
+# \- A SQL Server Testcontainers test that applies the real migrations
 
 # 
 
 # \## Run locally
 
-# &#x20;   dotnet run --project src\\MyApi.Api
+# 
 
-# Then open /scalar.
+# ```
+
+# dotnet run --project src/MyApi.Api
+
+# ```
 
 # 
 
-# \## Run tests
+# Open `/scalar`. Local development uses SQLite.
 
-# &#x20;   dotnet test
+# 
+
+# \## Run the tests
+
+# 
+
+# ```
+
+# dotnet test
+
+# dotnet test --filter "Category!=SqlServer"   # skip the Docker-based test
+
+# ```
+
+# 
+
+# \## Design decisions
+
+# 
+
+# \- \*\*Build once, deploy twice\*\*: the exact tested package goes to production.
+
+# \- \*\*Rollback redeploys the last release\*\*, because deployment slots need a paid tier.
+
+# \- \*\*Liveness and readiness are separate\*\*, so health pings don't keep the auto-pausing free database awake.
+
+# \- \*\*Rollback doesn't undo migrations\*\*, so migrations must be backward compatible.
+
+# \- \*\*The infrastructure pipeline is manual and separate\*\*: the deploy identity can't assign roles, by design.
 
