@@ -5,7 +5,7 @@
 
 A .NET 10 Minimal API that returns the current time in any time zone, with user accounts and saved favorite zones. The application is deliberately small. The point of the project is the **delivery pipeline and production practices** around it.
 
-**Live:** https://YOUR-PRODUCTION-URL/scalar
+**Live:** https://myapi-time-birupakhya-eke3dpavctbhb3h9.centralindia-01.azurewebsites.net/scalar
 
 ## Architecture
 
