@@ -353,3 +353,12 @@ jobs:
           echo
           echo "### Production was rolled back to the previous release" >> "$GITHUB_STEP_SUMMARY"
 
+  bicep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Bicep
+        run: az bicep build --file infra/main.bicep --stdout > /dev/null
+
